@@ -1,0 +1,64 @@
+# gh-proxy-manager
+
+管理 Arch Linux 下 GitHub 下载加速的小工具（yay/makepkg 与 git clone 双通道）。
+
+## 解决什么问题
+
+`yay -Syu` 升级 AUR 软件时，遇到 PKGBUILD 里写死的 `https://github.com/.../releases/download/...`
+源，直连极慢甚至超时。本工具通过 makepkg DLAGENT 覆盖与 git `insteadOf` 规则，
+让所有 GitHub 源自动套加速前缀，并提供图形界面随时开关、换站、测速。
+
+## 特性
+
+- ✅ yay/makepkg 加速：独立 `/etc/makepkg.conf.d/99-gh-proxy.conf`，不碰主配置
+- ✅ git clone 加速：一键启停全局 `insteadOf` 规则
+- ✅ 备选加速站列表：添加 / 删除 / 切换生效，内置批量连通性测试
+- ✅ 开关零残留：关闭即恢复官方直连，删除时自动校验
+- ✅ GUI（yad）+ CLI 双模式；单次提权、幂等写入
+- ⚠️ 仅对 github.com / raw.githubusercontent.com / codeload.github.com 生效
+
+## 安装
+
+```bash
+git clone https://github.com/Duter2016/gh-proxy-manager.git
+cd gh-proxy-manager
+makepkg -f
+sudo pacman -U gh-proxy-manager-*-any.pkg.tar.zst
+```
+
+依赖：`bash curl git`；可选 `yad`（GUI）、`polkit`。
+
+## 使用
+
+### 图形界面
+
+应用菜单「GitHub 下载加速管理」或直接运行 `gh-proxy-manager`：
+
+- 勾选要开启的加速通道，确认加速地址，点「应用」
+- 「备选地址…」里可添加/删除/切换加速站，并批量测试连通性
+
+### 命令行
+
+```bash
+gh-proxy-manager on        # 开启 yay/makepkg 加速
+gh-proxy-manager off       # 关闭
+gh-proxy-manager git-on    # 开启 git clone 加速
+gh-proxy-manager url <前缀>    # 更换加速地址
+gh-proxy-manager add <URL>     # 备选列表增加
+gh-proxy-manager use <URL>     # 切换生效
+gh-proxy-manager test      # 连通性测试
+gh-proxy-manager status    # 当前状态
+gh-proxy-manager log       # 查看调试日志
+```
+
+## 卸载
+
+```bash
+sudo pacman -R gh-proxy-manager
+/var/lib/gh-proxy-manager/uninstall-cleanup.sh   # 清理运行时文件
+```
+
+## 排错
+
+任何功能异常先看 `~/.config/gh-proxy-manager/debug.log`——每步操作的状态、
+返回码、原始输入都会记录在案。提 issue 时请附上该日志。

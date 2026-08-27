@@ -1,0 +1,6 @@
+.venv/
+*.pkg.tar.zst
+*.tar.gz
+src/
+pkg/
+.DS_Store

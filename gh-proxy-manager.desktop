@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=GitHub 下载加速管理
+Name[en]=GitHub Download Proxy Manager
+Comment=管理 yay/makepkg 与 git clone 的 GitHub 下载加速代理
+Comment[en]=Manage GitHub download acceleration for yay/makepkg and git clone
+Exec=gh-proxy-manager
+Icon=network-workgroup
+Terminal=false
+Categories=System;Settings;Network;
+Keywords=github;proxy;yay;makepkg;git;accelerate;
