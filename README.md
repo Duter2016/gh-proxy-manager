@@ -56,6 +56,30 @@ gh-proxy-manager status    # 当前状态
 gh-proxy-manager log       # 查看调试日志
 ```
 
+### 终端随手下载（可选）
+
+除了 makepkg/git 自动加速外，还提供下载子命令，手动 curl GitHub 链接时自动套用当前生效的加速前缀：
+
+```bash
+gh-proxy-manager get https://github.com/xxx/yyy/releases/download/v1/file.tar.gz
+gh-proxy-manager get <url> -H "Authorization: token xxx"   # 额外参数原样传给 curl
+```
+
+也可以在 `.bashrc` 里加一个更顺手的函数：
+
+```bash
+ghcurl(){
+  local p url="$1"
+  p="$(cat /etc/gh-proxy/prefix 2>/dev/null)"
+  [ "$url" != "${url/github.com/}" ] && [ -n "$p" ] && url="${p}${url}"
+  shift
+  curl -L -O "$@" "$url"
+}
+# 之后: ghcurl <github url>
+```
+
+未开启加速或非 github 链接时自动退化为普通 curl 下载。
+
 ### 卸载
 
 ```bash
@@ -115,6 +139,29 @@ gh-proxy-manager status      # current state
 ```
 
 GUI: run `gh-proxy-manager` or find “GitHub 下载加速管理” in your app menu.
+
+### Ad-hoc terminal downloads
+
+Besides makepkg/git, a `get` subcommand rewrites URLs for plain curl downloads:
+
+```bash
+gh-proxy-manager get <github-url>        # uses active mirror if acceleration is on
+```
+
+Or drop this helper into your `.bashrc`:
+
+```bash
+ghcurl(){
+  local p url="$1"
+  p="$(cat /etc/gh-proxy/prefix 2>/dev/null)"
+  [ "$url" != "${url/github.com/}" ] && [ -n "$p" ] && url="${p}${url}"
+  shift
+  curl -L -O "$@" "$url"
+}
+# then: ghcurl <github-url>
+```
+
+It degrades to plain curl when acceleration is off or the URL is not GitHub.
 
 ### Uninstall
 

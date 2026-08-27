@@ -64,6 +64,13 @@ clean_url() { # 从脏文本提取最后一个 http(s) URL 并规范成 前缀/
     [[ "$u" == */ ]] || u="$u/"
     printf '%s' "$u"
 }
+clean_url_none() {
+    local u="$(printf '%s' "${1:-}" | sed 's/|.*//' | tr -d ' \r')"
+    if printf '%s' "$u" | grep -Eq '^https?://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+$'; then
+        printf '%s' "$u"; return 0
+    fi
+    return 1
+}
 list_init() { mkdir -p "$LIST_DIR"; touch "$LIST_FILE"
               sed -i '/[|\t]/d' "$LIST_FILE"     # 清理历史脏数据行
               grep -q . "$LIST_FILE" || printf '%s\n' "$DEFAULT_PREFIX" >>"$LIST_FILE"; }
@@ -424,13 +431,20 @@ cli() {
         del)     list_init; list_del "${2:?用法: del <URL>}" && echo 已删除;;
         use)     status_text; apply_all "$MP" "$GITST" "${2:?用法: use <URL>}";;
         proxies) list_init; cat "$LIST_FILE";;
+        get)     status_text
+                 u="${2:?用法: gh-proxy-manager get <url> [curl选项...]}"
+                 target="$(clean_url_none "$u")" || { echo "✗ 不是有效的 http(s) URL: [$u]" >&2; exit 1; }
+                 case "$target" in *github.com/*|*raw.githubusercontent.com/*|*codeload.github.com/*)
+                     [ -n "${PFX:-}" ] && target="${PFX}${target}";; esac
+                 dlog "get ${PFX:-无前缀}$target"
+                 exec curl -L --fail --retry 3 -O "${@:3}" "$target";;
         status)  status_text; list_init
                  echo "makepkg/yay 加速: $MP   地址: ${PFX:-—}"
                  echo "git clone   加速: $GITST"; echo "--- 备选 ---"; cat "$LIST_FILE";;
         test)    status_text; u="${PFX}https://raw.githubusercontent.com/git/git/master/README.md"
                  curl -sL --connect-timeout 5 -m 10 -o /dev/null -w '%{http_code}\n' "$u";;
         log)     cat "$LOG_FILE" 2>/dev/null;;
-        *)       echo "子命令: on|off|url <前缀>|git-on|git-off|add <URL>|del <URL>|use <URL>|proxies|status|test|log";;
+        *)       echo "子命令: on|off|url <前缀>|git-on|git-off|add <URL>|del <URL>|use <URL>|proxies|get <url>|status|test|log";;
     esac
 }
 
