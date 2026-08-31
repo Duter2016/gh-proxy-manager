@@ -1,7 +1,8 @@
 #!/bin/bash
-# gh-proxy-manager —— GitHub 下载加速代理管理器  v1.4.0
-# 界面: yad 单窗口；提权一次授权；含备选代理管理(添加/删除/选为生效)
+# gh-proxy-manager —— GitHub 下载加速代理管理器  v2.3.0（jsdelivr CDN 加速）
+# 界面: yad 单窗口；提权一次授权；含备选代理管理(添加/删除/变更代理)
 # v1.4.0: 严格表单解析(URL 正则提取兜底)、入库清洗、全路径调试日志
+# v2.3.0: raw.githubusercontent.com 可选用 jsdelivr CDN 加速（复选框）
 
 set -u
 
@@ -11,6 +12,7 @@ DLAGENT_CONF="/etc/makepkg.conf.d/99-gh-proxy.conf"
 CURL_GH="/usr/local/bin/curl-gh"
 GIT_URL_KEY_HOST="https://github.com/"
 DEFAULT_PREFIX="https://ghfile.geekertao.top/"
+JSD_FILE="$CONF_DIR/jsdelivr"   # 存在=raw.githubusercontent.com 走 jsdelivr CDN
 
 LIST_DIR="$HOME/.config/gh-proxy-manager"
 LIST_FILE="$LIST_DIR/proxies"
@@ -55,6 +57,7 @@ status_text() {
     PFX="$(get_prefix)"
     GITST="$(git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null |
              grep -q github.com/ && echo 开 || echo 关)"
+    JSD="$([ -f "$JSD_FILE" ] && echo 开 || echo 关)"
 }
 
 # ---------- 备选列表 ----------
@@ -81,10 +84,25 @@ list_del() { local u t; u=$(clean_url "$1") || return 1
              grep -Fxv -e "$u" -e "${u%/}" "$LIST_FILE" >"$t" && mv "$t" "$LIST_FILE"; }
 
 # ---------- 运行时文件 ----------
+# raw.githubusercontent.com -> jsdelivr CDN：/user/repo/branch/path -> /gh/user/repo/path（去掉分支段）
+raw_to_jsd() { # $1=URL；转换成功输出新 URL，失败返回 1
+    local rest="${1#https://raw.githubusercontent.com/}"
+    [ "$rest" = "$1" ] && return 1
+    local tail="${rest#*/*/}"
+    [[ "$tail" == "$rest" || "$tail" != */* ]] && return 1
+    printf '%s' "https://cdn.jsdelivr.net/gh/${rest%"$tail"}${tail#*/}"
+}
 curl_gh_body() {
 cat <<'EOF'
 #!/bin/bash
 url="$1"; shift
+if [[ "$url" == *raw.githubusercontent.com/* ]] && [ -f /etc/gh-proxy/jsdelivr ]; then
+    rest="${url#https://raw.githubusercontent.com/}"
+    tail="${rest#*/*/}"
+    if [[ "$tail" != "$rest" && "$tail" == */* ]]; then
+        exec /usr/bin/curl "https://cdn.jsdelivr.net/gh/${rest%"$tail"}${tail#*/}" "$@"
+    fi
+fi
 if [ -s /etc/gh-proxy/prefix ]; then
     p="$(cat /etc/gh-proxy/prefix)"
     case "$url" in *github.com/*) url="${p}${url}";; esac
@@ -104,17 +122,19 @@ EOF
 }
 
 apply_all() {
-    local want_mp="$1" want_git="$2" want_pfx="$3" script=""
+    local want_mp="$1" want_git="$2" want_pfx="$3" want_jsd="${4:-}" script=""
     status_text
-    dlog "apply_all: 想要 mp=$want_mp git=$want_git pfx=$want_pfx / 当前 mp=$MP git=$GITST pfx=${PFX:-空}"
+    dlog "apply_all: 想要 mp=$want_mp git=$want_git pfx=$want_pfx jsd=$want_jsd / 当前 mp=$MP git=$GITST pfx=${PFX:-空} jsd=${JSD:-关}"
     if [ -z "$want_pfx" ]; then want_pfx="${PFX:-$DEFAULT_PREFIX}"; fi
     want_pfx="$(clean_url "$want_pfx")" || want_pfx="${PFX:-$DEFAULT_PREFIX}"
+    if [ -z "$want_jsd" ]; then want_jsd="${JSD:-关}"; fi
 
     script="# gh-proxy-manager apply
 set -e
 mkdir -p /etc/gh-proxy /etc/makepkg.conf.d /usr/local/bin
 printf '%s\\n' '$want_pfx' > $PREFIX_FILE.new && mv $PREFIX_FILE.new $PREFIX_FILE
 chmod 644 $PREFIX_FILE
+if [ '$want_jsd' = 开 ]; then : > $JSD_FILE; chmod 644 $JSD_FILE; else rm -f $JSD_FILE; fi
 "
     if [ "$want_mp" = 开 ]; then
         script+="cat > /usr/local/bin/curl-gh <<'CGEOF'
@@ -161,7 +181,13 @@ chmod 644 $DLAGENT_CONF
         gui_msg error "git 加速状态未生效！\n实际=$GITST 期望=$want_git"
         return 1
     fi
-    dlog "apply 成功: mp=$MP git=$GITST pfx=$PFX"
+    local actual_jsd; actual_jsd="$([ -f "$JSD_FILE" ] && echo 开 || echo 关)"
+    if [ "$actual_jsd" != "$want_jsd" ]; then
+        dlog "!! jsdelivr 状态未生效: 实际=$actual_jsd 期望=$want_jsd"
+        gui_msg error "jsdelivr 加速状态未生效！\n实际=$actual_jsd 期望=$want_jsd"
+        return 1
+    fi
+    dlog "apply 成功: mp=$MP git=$GITST pfx=$PFX jsd=$JSD"
     return 0
 }
 
@@ -218,26 +244,29 @@ do_test_gui() {
 # ---------- GUI: yad 主窗 ----------
 yad_main() {
     status_text
-    local mp_ch=FALSE g_ch=FALSE
+    local mp_ch=FALSE g_ch=FALSE jsd_ch=FALSE
     [ "${MP:-关}" = 开 ] && mp_ch=TRUE
     [ "${GITST:-关}" = 开 ] && g_ch=TRUE
+    [ "${JSD:-关}" = 开 ] && jsd_ch=TRUE
     yad --form --title="GitHub 下载加速管理" --width=560 \
         --separator="|" \
         --field="启用 yay/makepkg 下载加速:CHK" \
         --field="启用 git clone 加速:CHK" \
+        --field="raw.githubusercontent.com启用jsdelivr的cdn加速:CHK" \
         --field="加速地址(前缀，自动补 /):" \
         --button="备选地址(含测试)…:4" --button="应 用:0" --button="退 出:1" \
-        "$mp_ch" "$g_ch" "${PFX:-$DEFAULT_PREFIX}"
+        "$mp_ch" "$g_ch" "$jsd_ch" "${PFX:-$DEFAULT_PREFIX}"
 }
 
-parse_form() { # $1=raw；设 FORM_MP/FORM_GIT/FORM_PFX；失败返回 1
+parse_form() { # $1=raw；设 FORM_MP/FORM_GIT/FORM_JSD/FORM_PFX；失败返回 1
     local raw="$1"
-    local re='^([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee])([^A-Za-z]*)([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee])(.*)$'
+    local re='^([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee])([^A-Za-z]*)([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee])([^A-Za-z]*)([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee])(.*)$'
     if [[ "$raw" =~ $re ]]; then
         # yad 输出 TRUE/FALSE（全大写），统一按首字符判断
         case "${BASH_REMATCH[1]}" in T*|t*) FORM_MP=开;; *) FORM_MP=关;; esac
         case "${BASH_REMATCH[3]}" in T*|t*) FORM_GIT=开;; *) FORM_GIT=关;; esac
-        FORM_PFX="${BASH_REMATCH[4]}"
+        case "${BASH_REMATCH[5]}" in T*|t*) FORM_JSD=开;; *) FORM_JSD=关;; esac
+        FORM_PFX="${BASH_REMATCH[6]}"
         FORM_PFX="${FORM_PFX#[|:]^I}"
         return 0
     fi
@@ -254,7 +283,7 @@ yad_loop() {
             4) proxy_manager ;;
             0) status_text; parsed=关
                if parse_form "$vals"; then
-                   apply_all "$FORM_MP" "$FORM_GIT" "$FORM_PFX" || continue
+                   apply_all "$FORM_MP" "$FORM_GIT" "$FORM_PFX" "$FORM_JSD" || continue
                    parsed=开
                elif [ -n "$vals" ]; then
                    # 兜底：解析不出布尔值时不动开关，只按输入框地址更新（若可提取）
@@ -272,7 +301,7 @@ yad_loop() {
                    gui_msg error "未读取到界面数据，设置未被修改。"
                    continue
                fi
-               [ "$parsed" = 开 ] && gui_msg info "已应用 ✓\nyay/makepkg 加速:$MP\ngit 加速:$GITST\n生效地址:$(get_prefix)" ;;
+               [ "$parsed" = 开 ] && gui_msg info "已应用 ✓\nyay/makepkg 加速:$MP\ngit 加速:$GITST\nraw 走 jsdelivr:$JSD\n生效地址:$(get_prefix)" ;;
             1|252) exit 0 ;;
             *) dlog "未知按钮码 $yrc"; exit 0 ;;
         esac
@@ -373,7 +402,7 @@ proxy_manager() {
         yad --title="备选代理地址管理" --width=780 --height=460 \
             --text="$body\n<b>操作提示</b>：\n ・ 「测 试(全 部)」一键测所有；「测 试(指定编号)」在下一步输入编号，多个用逗号分隔（如 1,3）\n ・ 「删 除」「设为生效」按输入编号执行，每次一个编号\n\n当前生效地址: $(get_prefix)" \
             --button="测 试(全 部):5" --button="测 试(指定编号):6" \
-            --button="添 加:2" --button="删 除:3" --button="设为生效:0" --button="关 闭:1"
+            --button="添 加:2" --button="删 除:3" --button="变更代理:0" --button="关 闭:1"
         rc=$?
         dlog "管理窗口 rc=$rc"
         case "$rc" in
@@ -405,16 +434,18 @@ zenity_ui() {
     while true; do
         status_text; list_init
         ans=$(zenity --forms --title="GitHub 下载加速管理" --width=520 \
-            --text "当前：yay/makepkg=$MP　git=$GITST\n地址:${PFX:-未设置}" \
+            --text "当前：yay/makepkg=$MP　git=$GITST　raw走jsdelivr=$JSD\n地址:${PFX:-未设置}" \
             --add-checkbox="启用 yay/makepkg 下载加速" \
             --add-checkbox="启用 git clone 加速" \
+            --add-checkbox="raw.githubusercontent.com启用jsdelivr的cdn加速" \
             --add-entry="加速地址(前缀):" \
             --separator="|" 2>/dev/null) || exit 0
         dlog "zenity 输出=[$ans]"
-        IFS='|' read -r c1 c2 pfx_in <<<"$ans"
-        c1=${c1//True/TRUE}; c2=${c2//True/TRUE}
+        IFS='|' read -r c1 c2 c3 pfx_in <<<"$ans"
+        c1=${c1//True/TRUE}; c2=${c2//True/TRUE}; c3=${c3//True/TRUE}
         apply_all "$([ "$c1" = TRUE ] && echo 开 || echo 关)" \
-                  "$([ "$c2" = TRUE ] && echo 开 || echo 关)" "$pfx_in" || continue
+                  "$([ "$c2" = TRUE ] && echo 开 || echo 关)" "$pfx_in" \
+                  "$([ "$c3" = TRUE ] && echo 开 || echo 关)" || continue
         gui_msg info "已应用 ✓ 当前地址: $(get_prefix)"
     done
 }
@@ -434,13 +465,18 @@ cli() {
         get)     status_text
                  u="${2:?用法: gh-proxy-manager get <url> [curl选项...]}"
                  target="$(clean_url_none "$u")" || { echo "✗ 不是有效的 http(s) URL: [$u]" >&2; exit 1; }
-                 case "$target" in *github.com/*|*raw.githubusercontent.com/*|*codeload.github.com/*)
-                     [ -n "${PFX:-}" ] && target="${PFX}${target}";; esac
+                 case "$target" in
+                      *github.com/*) [ -n "${PFX:-}" ] && target="${PFX}${target}";;
+                      *raw.githubusercontent.com/*)
+                          if [ "${JSD:-}" = 开 ] && target="$(raw_to_jsd "$target")"; then :; else
+                              [ -n "${PFX:-}" ] && target="${PFX}${target}"
+                          fi;;
+                  esac
                  dlog "get ${PFX:-无前缀}$target"
                  exec curl -L --fail --retry 3 -O "${@:3}" "$target";;
         status)  status_text; list_init
                  echo "makepkg/yay 加速: $MP   地址: ${PFX:-—}"
-                 echo "git clone   加速: $GITST"; echo "--- 备选 ---"; cat "$LIST_FILE";;
+                 echo "git clone   加速: $GITST   raw走jsdelivr: ${JSD:-关}"; echo "--- 备选 ---"; cat "$LIST_FILE";;
         test)    status_text; u="${PFX}https://raw.githubusercontent.com/git/git/master/README.md"
                  curl -sL --connect-timeout 5 -m 10 -o /dev/null -w '%{http_code}\n' "$u";;
         log)     cat "$LOG_FILE" 2>/dev/null;;

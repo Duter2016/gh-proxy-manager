@@ -20,6 +20,7 @@
 - ✅ yay/makepkg 加速：独立 `/etc/makepkg.conf.d/99-gh-proxy.conf`，不碰主配置
 - ✅ git clone 加速：一键启停全局 `insteadOf` 规则
 - ✅ 备选加速站列表：添加 / 删除 / 切换生效，内置批量连通性测试
+- ✅ 可选 jsdelivr CDN：raw.githubusercontent.com 内容走 CDN 加速
 - ✅ 开关零残留：关闭即恢复官方直连，卸载时自动校验
 - ✅ GUI（yad）+ CLI 双模式；单次提权、幂等写入
 - ⚠️ 仅对 github.com / raw.githubusercontent.com / codeload.github.com 生效
@@ -114,6 +115,7 @@ switch mirrors and run speed tests.
 - yay/makepkg acceleration via `/etc/makepkg.conf.d/99-gh-proxy.conf` (main config untouched)
 - One-click global `insteadOf` rule for git clone
 - Mirror pool: add / remove / switch active mirror, with batch connectivity tests
+- Optional jsDelivr CDN acceleration for raw.githubusercontent.com content
 - Clean on/off: disabling restores official connections; uninstall leaves nothing behind
 - GUI (yad) + CLI; single privilege escalation per apply, idempotent writes
 - Only rewrites `github.com`, `raw.githubusercontent.com`, `codeload.github.com`
