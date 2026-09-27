@@ -72,14 +72,18 @@ gh-proxy-manager get <url> -H "Authorization: token xxx"   # 额外参数原样�
 ghcurl(){
   local p url="$1"
   p="$(cat /etc/gh-proxy/prefix 2>/dev/null)"
-  [ "$url" != "${url/github.com/}" ] && [ -n "$p" ] && url="${p}${url}"
+  # 已带加速前缀（https://proxy/https://github.com/...）则原样使用，不重复拼接
+  if [[ ! "$url" =~ ^https?://[^/]+/https?:// ]] \
+     && [ "$url" != "${url/github.com/}" ] && [ -n "$p" ]; then
+    url="${p}${url}"
+  fi
   shift
   curl -L -O "$@" "$url"
 }
 # 之后: ghcurl <github url>
 ```
 
-未开启加速或非 github 链接时自动退化为普通 curl 下载。
+未开启加速、非 github 链接、或链接本身已带加速前缀时，均按原样下载。
 
 ### 卸载
 
@@ -156,14 +160,19 @@ Or drop this helper into your `.bashrc`:
 ghcurl(){
   local p url="$1"
   p="$(cat /etc/gh-proxy/prefix 2>/dev/null)"
-  [ "$url" != "${url/github.com/}" ] && [ -n "$p" ] && url="${p}${url}"
+  # already-prefixed URL (https://proxy/https://github.com/...) is used as-is
+  if [[ ! "$url" =~ ^https?://[^/]+/https?:// ]] \
+     && [ "$url" != "${url/github.com/}" ] && [ -n "$p" ]; then
+    url="${p}${url}"
+  fi
   shift
   curl -L -O "$@" "$url"
 }
 # then: ghcurl <github-url>
 ```
 
-It degrades to plain curl when acceleration is off or the URL is not GitHub.
+It is used as-is when acceleration is off, the URL is not GitHub, or the URL
+already carries an acceleration prefix.
 
 ### Uninstall
 

@@ -1,8 +1,9 @@
 #!/bin/bash
-# gh-proxy-manager —— GitHub 下载加速代理管理器  v2.3.0（jsdelivr CDN 加速）
+# gh-proxy-manager —— GitHub 下载加速代理管理器  v2.3.1（jsdelivr CDN 加速）
 # 界面: yad 单窗口；提权一次授权；含备选代理管理(添加/删除/变更代理)
 # v1.4.0: 严格表单解析(URL 正则提取兜底)、入库清洗、全路径调试日志
 # v2.3.0: raw.githubusercontent.com 可选用 jsdelivr CDN 加速（复选框）
+# v2.3.1: 已带加速前缀的链接（https://proxy/https://github.com/...）原样透传，不再二次拼接
 
 set -u
 
@@ -84,6 +85,10 @@ list_del() { local u t; u=$(clean_url "$1") || return 1
              grep -Fxv -e "$u" -e "${u%/}" "$LIST_FILE" >"$t" && mv "$t" "$LIST_FILE"; }
 
 # ---------- 运行时文件 ----------
+# 已带加速前缀的链接（形如 https://proxy/https://github.com/...）判断：是则原样使用，不再拼前缀
+is_proxied() {
+    [[ "${1:-}" =~ ^https?://[^/]+/https?:// ]]
+}
 # raw.githubusercontent.com -> jsdelivr CDN：/user/repo/branch/path -> /gh/user/repo/path（去掉分支段）
 raw_to_jsd() { # $1=URL；转换成功输出新 URL，失败返回 1
     local rest="${1#https://raw.githubusercontent.com/}"
@@ -96,6 +101,8 @@ curl_gh_body() {
 cat <<'EOF'
 #!/bin/bash
 url="$1"; shift
+# 已带加速前缀的链接（形如 https://proxy/<原始URL>）原样透传，不重复拼接
+if [[ "$url" =~ ^https?://[^/]+/https?:// ]]; then exec /usr/bin/curl "$url" "$@"; fi
 if [[ "$url" == *raw.githubusercontent.com/* ]] && [ -f /etc/gh-proxy/jsdelivr ]; then
     rest="${url#https://raw.githubusercontent.com/}"
     tail="${rest#*/*/}"
@@ -465,14 +472,18 @@ cli() {
         get)     status_text
                  u="${2:?用法: gh-proxy-manager get <url> [curl选项...]}"
                  target="$(clean_url_none "$u")" || { echo "✗ 不是有效的 http(s) URL: [$u]" >&2; exit 1; }
-                 case "$target" in
-                      *github.com/*) [ -n "${PFX:-}" ] && target="${PFX}${target}";;
-                      *raw.githubusercontent.com/*)
-                          if [ "${JSD:-}" = 开 ] && target="$(raw_to_jsd "$target")"; then :; else
-                              [ -n "${PFX:-}" ] && target="${PFX}${target}"
-                          fi;;
-                  esac
-                 dlog "get ${PFX:-无前缀}$target"
+                 if is_proxied "$target"; then
+                     dlog "get 已带加速前缀，原样透传: $target"
+                 else
+                     case "$target" in
+                          *github.com/*) [ -n "${PFX:-}" ] && target="${PFX}${target}";;
+                          *raw.githubusercontent.com/*)
+                              if [ "${JSD:-}" = 开 ] && target="$(raw_to_jsd "$target")"; then :; else
+                                  [ -n "${PFX:-}" ] && target="${PFX}${target}"
+                              fi;;
+                      esac
+                     dlog "get ${PFX:-无前缀}$target"
+                 fi
                  exec curl -L --fail --retry 3 -O "${@:3}" "$target";;
         status)  status_text; list_init
                  echo "makepkg/yay 加速: $MP   地址: ${PFX:-—}"
