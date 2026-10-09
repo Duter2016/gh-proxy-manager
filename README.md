@@ -20,6 +20,8 @@
 - ✅ yay/makepkg 加速：独立 `/etc/makepkg.conf.d/99-gh-proxy.conf`，不碰主配置
 - ✅ git clone 加速：一键启停全局 `insteadOf` 规则
 - ✅ 备选加速站列表：添加 / 删除 / 切换生效，内置批量连通性测试
+- ✅ 真实测速：测试直接下载 release 文件并显示速度，对 release 404/限速的坏站一眼可见
+- ✅ 自动换站（failover）：下载失败或龟速（<20KB/s 持续 30s）时按备选列表断点续传换下一站，可开关
 - ✅ 可选 jsdelivr CDN：raw.githubusercontent.com 内容走 CDN 加速
 - ✅ 开关零残留：关闭即恢复官方直连，卸载时自动校验
 - ✅ GUI（yad）+ CLI 双模式；单次提权、幂等写入
@@ -52,7 +54,8 @@ gh-proxy-manager git-on    # 开启 git clone 加速
 gh-proxy-manager url <前缀>    # 更换加速地址
 gh-proxy-manager add <URL>     # 备选列表增加
 gh-proxy-manager use <URL>     # 切换生效
-gh-proxy-manager test      # 连通性测试
+gh-proxy-manager failover on|off  # 自动换站开关
+gh-proxy-manager test      # 连通性测试（release 文件实测速度）
 gh-proxy-manager status    # 当前状态
 gh-proxy-manager log       # 查看调试日志
 ```
@@ -119,6 +122,10 @@ switch mirrors and run speed tests.
 - yay/makepkg acceleration via `/etc/makepkg.conf.d/99-gh-proxy.conf` (main config untouched)
 - One-click global `insteadOf` rule for git clone
 - Mirror pool: add / remove / switch active mirror, with batch connectivity tests
+- Real speed test: the check downloads a release file and reports KB/s, exposing
+  mirrors that 404 or throttle release downloads
+- Auto failover: on failure or slow speed (<20KB/s for 30s) it retries the next
+  mirror with resume; toggleable via GUI/CLI
 - Optional jsDelivr CDN acceleration for raw.githubusercontent.com content
 - Clean on/off: disabling restores official connections; uninstall leaves nothing behind
 - GUI (yad) + CLI; single privilege escalation per apply, idempotent writes
@@ -140,7 +147,8 @@ Depends: `bash curl git`; optional: `yad`, `polkit`.
 gh-proxy-manager on          # enable makepkg/yay acceleration
 gh-proxy-manager git-on      # enable git clone acceleration
 gh-proxy-manager url https://<mirror>/   # change prefix
-gh-proxy-manager test        # connectivity check
+gh-proxy-manager failover on|off   # auto-failover switch
+gh-proxy-manager test        # connectivity check (downloads a release file)
 gh-proxy-manager status      # current state
 ```
 
