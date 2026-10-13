@@ -10,6 +10,9 @@
 # v2.3.4: 自动换站可开关（GUI/CLI），/etc/gh-proxy/nofailover 存在=禁用（默认启用）
 # v2.3.4 关键修复: curl-gh 一直用 $1 当 URL，但 makepkg 的 DLAGENT 模板 %u 在末尾、
 #         URL 实为最后一个参数 → 代理改写从未生效，github 下载一直直连（慢的总根源）
+# v2.3.5: 修复 zenity 后备界面闪退——zenity 4.x 的 --forms 无 --add-checkbox（rc=255），
+#         旧代码把 stderr 丢弃 + 静默退出，导致"有 zenity 无 yad"的用户点开即闪退；
+#         改用 --add-combo 模拟开关，失败时记日志并给出可执行的提示
 
 set -u
 
@@ -484,24 +487,35 @@ proxy_manager() {
 }
 
 # ---------- zenity 后备 ----------
+# 注意: zenity 4.x 的 --forms 没有 --add-checkbox（会报 This option is not available
+# 并以 255 退出，旧版这里 stderr 被丢弃导致"点了没反应/闪退"）。开关改用 --add-combo
+# 模拟，当前状态排第一项即为默认值；仅 yad 缺席时才走这里。
 zenity_ui() {
+    local zerr="$LIST_DIR/zenity.err" ans rc
     while true; do
         status_text; list_init
         ans=$(zenity --forms --title="GitHub 下载加速管理" --width=520 \
-            --text "当前：yay/makepkg=$MP　git=$GITST　raw走jsdelivr=$JSD\n地址:${PFX:-未设置}" \
-            --add-checkbox="启用 yay/makepkg 下载加速" \
-            --add-checkbox="启用 git clone 加速" \
-            --add-checkbox="raw.githubusercontent.com启用jsdelivr的cdn加速" \
-            --add-checkbox="失败/龟速时自动换备选站" \
-            --add-entry="加速地址(前缀):" \
-            --separator="|" 2>/dev/null) || exit 0
+            --text "各开关已按当前状态预选；地址留空则保持当前值" \
+            --add-combo="启用 yay/makepkg 下载加速" --combo-values="$([ "${MP:-关}" = 开 ] && echo '开|关' || echo '关|开')" \
+            --add-combo="启用 git clone 加速"      --combo-values="$([ "${GITST:-关}" = 开 ] && echo '开|关' || echo '关|开')" \
+            --add-combo="raw 走 jsdelivr CDN"      --combo-values="$([ "${JSD:-关}" = 开 ] && echo '开|关' || echo '关|开')" \
+            --add-combo="失败/龟速自动换站"         --combo-values="$([ "${FO:-开}" = 开 ] && echo '开|关' || echo '关|开')" \
+            --add-entry="加速地址(前缀，留空不变):" \
+            --separator="|" 2>"$zerr") || {
+                rc=$?
+                if [ "$rc" = 255 ] || grep -qiE 'not available|unknown option' "$zerr" 2>/dev/null; then
+                    dlog "zenity 界面失败 rc=$rc: $(tr '\n' ' ' <"$zerr" 2>/dev/null | head -c 200)"
+                    echo "✗ 图形界面无法启动（zenity 返回 $rc）" >&2
+                    echo "  建议安装 yad（图形界面推荐），或改用命令行：" >&2
+                    echo "    gh-proxy-manager status | on | off | url <前缀> | git-on | git-off | failover on|off" >&2
+                    exit 1
+                fi
+                exit 0   # 用户取消/关窗，正常退出
+            }
         dlog "zenity 输出=[$ans]"
+        # combo 直接输出「开」/「关」；地址留空由 apply_all 兜底沿用当前值
         IFS='|' read -r c1 c2 c3 c4 pfx_in <<<"$ans"
-        c1=${c1//True/TRUE}; c2=${c2//True/TRUE}; c3=${c3//True/TRUE}; c4=${c4//True/TRUE}
-        apply_all "$([ "$c1" = TRUE ] && echo 开 || echo 关)" \
-                  "$([ "$c2" = TRUE ] && echo 开 || echo 关)" "$pfx_in" \
-                  "$([ "$c3" = TRUE ] && echo 开 || echo 关)" \
-                  "$([ "$c4" = TRUE ] && echo 开 || echo 关)" || continue
+        apply_all "$c1" "$c2" "$pfx_in" "$c3" "$c4" || continue
         gui_msg info "已应用 ✓ 当前地址: $(get_prefix)\n自动换站: ${FO:-?}"
     done
 }
@@ -552,6 +566,7 @@ cli() {
 case "${1:-gui}" in
     gui) if have yad; then yad_loop
          elif have zenity; then zenity_ui
-         else cli status; fi;;
+         else echo "未检测到图形界面组件（yad/zenity），改用命令行模式：" >&2
+              cli status; fi;;
     *)   cli "$@";;
 esac
