@@ -1,7 +1,7 @@
 # Maintainer: Donghui <duter2016@foxmail.com>
 pkgname=gh-proxy-manager
-pkgver=2.3.5
-pkgrel=2
+pkgver=2.3.6
+pkgrel=1
 pkgdesc="管理 yay/makepkg 与 git clone 的 GitHub 下载加速代理（图形/命令行）"
 arch=('any')
 url="https://github.com/Duter2016/gh-proxy-manager"
