@@ -16,6 +16,9 @@
 # v2.3.6: zenity 后备补齐备选地址管理（主窗「附加操作」→ 管理备选地址：
 #         设为生效/测试全部/测试指定/添加地址/删除地址），复用既有 list_*/test_* 逻辑；
 #         yad 部分（proxy_manager/bulk_test/yad_*）未做任何改动
+# v2.3.7: zenity 备选管理两处免提权修复——旧版入口串在 apply_all 之后，
+#         只想管理备选的用户被 sudo 密码框挡在门外（取消则永远进不去）：
+#         ① 设置未改动时进备选管理不再提权 ② 选「已是当前生效」的站不再提权
 
 set -u
 
@@ -550,8 +553,11 @@ zmanage_proxies() { # zenity 版备选管理主循环（列表/切换/测速/增
             设为生效)
                 u=$(zpick_proxy "选择要设为生效的地址") || continue
                 [ -n "$u" ] || continue
-                apply_all "${MP:-关}" "${GITST:-关}" "$u" "${JSD:-关}" "${FO:-开}" &&
-                    gui_msg info "已切换生效地址:\n$(get_prefix)" ;;
+                if [ "$u" = "$(get_prefix)" ]; then
+                    gui_msg info "该地址已是当前生效地址，无需切换"   # 无变化不提权
+                elif apply_all "${MP:-关}" "${GITST:-关}" "$u" "${JSD:-关}" "${FO:-开}"; then
+                    gui_msg info "已切换生效地址:\n$(get_prefix)"
+                fi ;;
             测试全部)
                 ztest_all
                 gui_msg info "测试完成，速度已记录到备选列表" ;;
@@ -605,9 +611,21 @@ zenity_ui() {
         dlog "zenity 输出=[$ans]"
         # combo 直接输出「开」/「关」；地址留空由 apply_all 兜底沿用当前值
         IFS='|' read -r c1 c2 c3 c4 extra pfx_in <<<"$ans"
+        # 设置是否被改动（未改动就不该提权）
+        local changed=0
+        [ "$c1" != "${MP:-关}" ] && changed=1
+        [ "$c2" != "${GITST:-关}" ] && changed=1
+        [ "$c3" != "${JSD:-关}" ] && changed=1
+        [ "$c4" != "${FO:-开}" ] && changed=1
+        [ -n "$pfx_in" ] && changed=1
+        # 只想管理备选且设置没改：直接进管理，不弹密码框（yad 的备选入口本就是独立的）
+        if [ "$extra" = "管理备选地址" ] && [ "$changed" = 0 ]; then
+            zmanage_proxies
+            continue
+        fi
         apply_all "$c1" "$c2" "$pfx_in" "$c3" "$c4" || continue
         gui_msg info "已应用 ✓ 当前地址: $(get_prefix)\n自动换站: ${FO:-?}"
-        # 附加操作=管理备选地址：设置应用完再进备选管理
+        # 改了设置又要管理备选：应用成功后再进
         [ "$extra" = "管理备选地址" ] && zmanage_proxies
     done
 }
