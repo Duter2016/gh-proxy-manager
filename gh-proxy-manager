@@ -19,6 +19,10 @@
 # v2.3.7: zenity 备选管理两处免提权修复——旧版入口串在 apply_all 之后，
 #         只想管理备选的用户被 sudo 密码框挡在门外（取消则永远进不去）：
 #         ① 设置未改动时进备选管理不再提权 ② 选「已是当前生效」的站不再提权
+# v2.3.8: raw.githubusercontent.com 代理修复（独立成段，github.com 规则一字未动）——
+#         旧版 jsdelivr 分支用 exec，CDN 一挂 raw 下载直接失败；且 case 只匹配
+#         github.com，不打 raw 的匹配，导致关掉 jsdelivr 时 raw 走直连（必挂）。
+#         现改为：jsdelivr 优先 → 失败回退代理前缀 → 再失败按备选列表换站 → 直连兜底
 
 set -u
 
@@ -124,13 +128,34 @@ url="$1"; [ "$1" = "${1#*://}" ] && { url="${@: -1}"; set -- "${@:1:$(( $# - 1 )
 # URL 兼容两种位置：显式传首个参数(直接调用)或 makepkg DLAGENT 模板 %u 在末尾(最后一个参数)
 # 已带加速前缀的链接（形如 https://proxy/<原始URL>）原样透传，不重复拼接
 if [[ "$url" =~ ^https?://[^/]+/https?:// ]]; then exec /usr/bin/curl "$url" "$@"; fi
-if [[ "$url" == *raw.githubusercontent.com/* ]] && [ -f /etc/gh-proxy/jsdelivr ]; then
-    rest="${url#https://raw.githubusercontent.com/}"
-    tail="${rest#*/*/}"
-    if [[ "$tail" != "$rest" && "$tail" == */* ]]; then
-        exec /usr/bin/curl "https://cdn.jsdelivr.net/gh/${rest%"$tail"}${tail#*/}" "$@"
+# ---- raw.githubusercontent.com 专用规则（独立成段，不与 github.com 共用分支）----
+if [[ "$url" == *raw.githubusercontent.com/* ]]; then
+    # ① 可选 jsdelivr CDN 优先；不可用则继续往下走，不再 exec 卡死
+    if [ -f /etc/gh-proxy/jsdelivr ]; then
+        rest="${url#https://raw.githubusercontent.com/}"
+        tail="${rest#*/*/}"
+        if [[ "$tail" != "$rest" && "$tail" == */* ]]; then
+            /usr/bin/curl --connect-timeout 5 --speed-limit 20480 --speed-time 30 \
+                          "$@" "https://cdn.jsdelivr.net/gh/${rest%"$tail"}${tail#*/}" && exit 0
+        fi
     fi
+    # ② 代理前缀 + 换站（-C - 可续传同一文件）
+    if [ -s /etc/gh-proxy/prefix ]; then
+        if [ -f /etc/gh-proxy/nofailover ]; then
+            p="$(cat /etc/gh-proxy/prefix)"
+            exec /usr/bin/curl "$@" "${p}${url}"
+        fi
+        mapfile -t RCANDS < <({ cat /etc/gh-proxy/prefix
+                                cat "$HOME/.config/gh-proxy-manager/proxies" 2>/dev/null; } |
+                              grep -E '^https?://' | awk '!seen[$0]++')
+        for c in "${RCANDS[@]}"; do
+            /usr/bin/curl --connect-timeout 5 --speed-limit 20480 --speed-time 30 \
+                          "$@" "${c}${url}" && exit 0
+        done
+    fi
+    exec /usr/bin/curl "$url" "$@"   # raw 全败：直连兜底
 fi
+# ---- 以下 github.com 规则保持原样，本次未做任何改动 ----
 case "$url" in
     *github.com/*)
         if [ -s /etc/gh-proxy/prefix ]; then
